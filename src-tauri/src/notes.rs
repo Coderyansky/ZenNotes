@@ -1,12 +1,36 @@
 use notify::{event::ModifyKind, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::SystemTime;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub struct WatcherState(pub Mutex<Option<RecommendedWatcher>>);
+
+fn sort_nodes(nodes: &mut Vec<FileNode>) {
+    nodes.sort_by(|a, b| match (a, b) {
+        (FileNode::Folder { name: na, .. }, FileNode::Folder { name: nb, .. }) => na.cmp(nb),
+        (FileNode::Folder { .. }, FileNode::File { .. }) => std::cmp::Ordering::Less,
+        (FileNode::File { .. }, FileNode::Folder { .. }) => std::cmp::Ordering::Greater,
+        (FileNode::File { modified_at: ma, .. }, FileNode::File { modified_at: mb, .. }) => {
+            mb.cmp(ma)
+        }
+    });
+}
+
+fn get_file_type(path: &Path) -> Option<String> {
+    let ext = path.extension()?.to_str()?.to_lowercase();
+    match ext.as_str() {
+        "md" => Some("note".to_string()),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg" | "avif" | "heic" | "heif" => {
+            Some("image".to_string())
+        }
+        "pdf" => Some("pdf".to_string()),
+        _ => None,
+    }
+}
 
 #[tauri::command]
 pub fn start_vault_watch(app: AppHandle, path: String) -> Result<(), String> {
@@ -49,6 +73,7 @@ pub enum FileNode {
         path: String,
         modified_at: u64,
         snippet: Option<String>,
+        file_type: String,
     },
     Folder {
         id: String,
@@ -64,14 +89,14 @@ pub fn get_default_vault_path(app: tauri::AppHandle) -> Result<String, String> {
     let docs_dir = app.path().document_dir().map_err(|e| e.to_string())?;
     let vault_dir = docs_dir.join("ZenNotesVault");
     let assets_dir = vault_dir.join("assets");
-    
+
     if !vault_dir.exists() {
         std::fs::create_dir_all(&vault_dir).map_err(|e| e.to_string())?;
     }
     if !assets_dir.exists() {
         std::fs::create_dir_all(&assets_dir).map_err(|e| e.to_string())?;
     }
-    
+
     Ok(vault_dir.to_string_lossy().to_string())
 }
 
@@ -82,7 +107,7 @@ fn build_tree(dir: &Path) -> Result<Vec<FileNode>, String> {
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        
+
         // Skip hidden files/folders and the assets folder
         if name.starts_with('.') || name == "assets" {
             continue;
@@ -96,7 +121,7 @@ fn build_tree(dir: &Path) -> Result<Vec<FileNode>, String> {
                 path: path.to_string_lossy().to_string(),
                 children,
             });
-        } else if path.extension().map_or(false, |e| e == "md") {
+        } else if let Some(file_type) = get_file_type(&path) {
             let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
             let modified_at = metadata
                 .modified()
@@ -105,8 +130,20 @@ fn build_tree(dir: &Path) -> Result<Vec<FileNode>, String> {
                 .unwrap_or_default()
                 .as_secs();
 
-            let content = fs::read_to_string(&path).unwrap_or_default();
-            let snippet = Some(content.chars().take(100).collect::<String>());
+            let snippet = if file_type == "note" {
+                let mut buf = vec![0u8; 512];
+                let n = fs::File::open(&path)
+                    .and_then(|mut f| f.read(&mut buf))
+                    .unwrap_or(0);
+                Some(
+                    String::from_utf8_lossy(&buf[..n])
+                        .chars()
+                        .take(100)
+                        .collect::<String>(),
+                )
+            } else {
+                None
+            };
 
             nodes.push(FileNode::File {
                 id: path.to_string_lossy().to_string(),
@@ -114,18 +151,12 @@ fn build_tree(dir: &Path) -> Result<Vec<FileNode>, String> {
                 path: path.to_string_lossy().to_string(),
                 modified_at,
                 snippet,
+                file_type,
             });
         }
     }
 
-    // Sort: Folders first, then files by modified_at descending
-    nodes.sort_by(|a, b| match (a, b) {
-        (FileNode::Folder { name: name_a, .. }, FileNode::Folder { name: name_b, .. }) => name_a.cmp(name_b),
-        (FileNode::Folder { .. }, FileNode::File { .. }) => std::cmp::Ordering::Less,
-        (FileNode::File { .. }, FileNode::Folder { .. }) => std::cmp::Ordering::Greater,
-        (FileNode::File { modified_at: mod_a, .. }, FileNode::File { modified_at: mod_b, .. }) => mod_b.cmp(mod_a),
-    });
-
+    sort_nodes(&mut nodes);
     Ok(nodes)
 }
 
@@ -154,7 +185,9 @@ pub fn search_vault(query: &str, path: &str) -> Result<Vec<FileNode>, String> {
             let content = fs::read_to_string(entry.path()).unwrap_or_default();
             let file_name = entry.file_name().to_string_lossy().to_string();
 
-            if file_name.to_lowercase().contains(&query_lower) || content.to_lowercase().contains(&query_lower) {
+            if file_name.to_lowercase().contains(&query_lower)
+                || content.to_lowercase().contains(&query_lower)
+            {
                 let file_path = entry.path().to_string_lossy().to_string();
                 let metadata = fs::metadata(entry.path()).map_err(|e| e.to_string())?;
                 let modified_at = metadata
@@ -172,47 +205,98 @@ pub fn search_vault(query: &str, path: &str) -> Result<Vec<FileNode>, String> {
                     path: file_path,
                     modified_at,
                     snippet,
+                    file_type: "note".to_string(),
                 });
             }
         }
     }
 
     results.sort_by(|a, b| {
-        if let (FileNode::File { modified_at: am, .. }, FileNode::File { modified_at: bm, .. }) = (a, b) {
+        if let (
+            FileNode::File {
+                modified_at: am, ..
+            },
+            FileNode::File {
+                modified_at: bm, ..
+            },
+        ) = (a, b)
+        {
             bm.cmp(am)
         } else {
             std::cmp::Ordering::Equal
         }
     });
-    
+
     Ok(results)
 }
 
 #[tauri::command]
-pub fn save_asset_in_vault(vault_path: &str, name: String, data: Vec<u8>) -> Result<String, String> {
+pub fn save_asset_in_vault(
+    vault_path: &str,
+    name: String,
+    data: Vec<u8>,
+) -> Result<String, String> {
     let assets_dir = Path::new(vault_path).join("assets");
-    
+
     if !assets_dir.exists() {
         std::fs::create_dir_all(&assets_dir).map_err(|e| e.to_string())?;
     }
-    
-    // Generate a unique filename if it exists
-    let ext = std::path::Path::new(&name)
+
+    let name_path = std::path::Path::new(&name);
+    let ext = name_path
         .extension()
         .and_then(|s| s.to_str())
-        .unwrap_or("png");
-        
-    let unique_name = format!("{}_{}.{}", 
-        name.replace(&format!(".{}", ext), ""), 
-        std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_millis(),
-        ext
-    );
+        .unwrap_or("bin");
+    let stem = name_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let unique_name = format!("{stem}_{timestamp}.{ext}");
 
     let target_path = assets_dir.join(&unique_name);
     std::fs::write(&target_path, data).map_err(|e| e.to_string())?;
-    
-    // Return relative vault path or just the filename so UI knows what to embed
+
     Ok(format!("assets/{}", unique_name))
+}
+
+/// Save a file to an arbitrary folder within the vault (for drag-drop into folder browser).
+#[tauri::command]
+pub fn save_file_to_folder(
+    folder_path: &str,
+    name: String,
+    data: Vec<u8>,
+) -> Result<String, String> {
+    let target_dir = Path::new(folder_path);
+    if !target_dir.exists() {
+        std::fs::create_dir_all(target_dir).map_err(|e| e.to_string())?;
+    }
+
+    let name_path = std::path::Path::new(&name);
+    let ext = name_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("bin");
+    let stem = name_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+
+    // Avoid name collisions
+    let mut final_name = name.clone();
+    let mut counter = 1;
+    while target_dir.join(&final_name).exists() {
+        final_name = format!("{stem}_{counter}.{ext}");
+        counter += 1;
+    }
+
+    let target_path = target_dir.join(&final_name);
+    std::fs::write(&target_path, data).map_err(|e| e.to_string())?;
+
+    Ok(target_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -234,7 +318,14 @@ pub fn delete_element(vault_path: &str, path: &str) -> Result<(), String> {
 
     // append a timestamp to avoid naming collisions in the trash
     let name = p.file_name().unwrap_or_default().to_string_lossy();
-    let unique_name = format!("{}_{}", name, SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs());
+    let unique_name = format!(
+        "{}_{}",
+        name,
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    );
     let target = trash_dir.join(unique_name);
 
     std::fs::rename(p, target).map_err(|e| e.to_string())
@@ -270,23 +361,19 @@ pub fn get_trash_items(vault_path: &str) -> Result<Vec<FileNode>, String> {
                 children: vec![],
             });
         } else {
+            let file_type = get_file_type(&path).unwrap_or_else(|| "note".to_string());
             nodes.push(FileNode::File {
                 id: path.to_string_lossy().to_string(),
                 name,
                 path: path.to_string_lossy().to_string(),
                 modified_at,
                 snippet: None,
+                file_type,
             });
         }
     }
 
-    nodes.sort_by(|a, b| match (a, b) {
-        (FileNode::Folder { name: name_a, .. }, FileNode::Folder { name: name_b, .. }) => name_a.cmp(name_b),
-        (FileNode::Folder { .. }, FileNode::File { .. }) => std::cmp::Ordering::Less,
-        (FileNode::File { .. }, FileNode::Folder { .. }) => std::cmp::Ordering::Greater,
-        (FileNode::File { modified_at: mod_a, .. }, FileNode::File { modified_at: mod_b, .. }) => mod_b.cmp(mod_a),
-    });
-
+    sort_nodes(&mut nodes);
     Ok(nodes)
 }
 
@@ -298,8 +385,8 @@ pub fn restore_trash_element(vault_path: &str, trash_path: &str) -> Result<(), S
     }
 
     let name = p.file_name().unwrap_or_default().to_string_lossy();
-    // remove the timestamp if possible. Format is name_timestamp
-    let mut parts: Vec<&str> = name.rsplitn(2, '_').collect();
+    // remove the timestamp suffix. Format is name_timestamp
+    let parts: Vec<&str> = name.rsplitn(2, '_').collect();
     let original_name = if parts.len() == 2 { parts[1] } else { &name };
 
     let target = Path::new(vault_path).join(original_name);
