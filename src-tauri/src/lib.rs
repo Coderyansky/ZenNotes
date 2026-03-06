@@ -24,6 +24,17 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
 
             #[cfg(target_os = "macos")]
+            {
+                use image::GenericImageView;
+                let icon_bytes = include_bytes!("../icons/icon.png");
+                let img = image::load_from_memory(icon_bytes).unwrap();
+                let (w, h) = img.dimensions();
+                let rgba = img.into_rgba8().into_raw();
+                let icon = tauri::image::Image::new_owned(rgba, w, h);
+                let _ = window.set_icon(icon);
+            }
+
+            #[cfg(target_os = "macos")]
             let _ = apply_vibrancy(
                 &window,
                 NSVisualEffectMaterial::UnderWindowBackground,
@@ -46,7 +57,8 @@ pub fn run() {
             notes::get_trash_items,
             notes::restore_trash_element,
             notes::empty_trash,
-            notes::start_vault_watch
+            notes::start_vault_watch,
+            notes::save_file_to_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
