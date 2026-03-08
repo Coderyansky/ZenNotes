@@ -3,7 +3,7 @@ import { load, Store } from "@tauri-apps/plugin-store";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 
-export type FileNode = 
+export type FileNode =
   | {
       type: "File";
       id: string;
@@ -11,6 +11,7 @@ export type FileNode =
       path: string;
       modified_at: number;
       snippet?: string;
+      file_type?: "note" | "image" | "pdf";
     }
   | {
       type: "Folder";
@@ -19,6 +20,12 @@ export type FileNode =
       path: string;
       children: FileNode[];
     };
+
+export type ViewingAsset = {
+  path: string;
+  type: "image" | "pdf";
+  name: string;
+};
 
 export type NoteFile = Extract<FileNode, { type: "File" }>;
 
@@ -46,6 +53,8 @@ interface AppState {
   setMainView: (view: "afk" | "folders" | "editor" | "trash") => void;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
+  viewingAsset: ViewingAsset | null;
+  setViewingAsset: (asset: ViewingAsset | null) => void;
 }
 
 let store: Store | null = null;
@@ -53,6 +62,8 @@ async function getStore() {
   if (!store) store = await load("settings.json");
   return store;
 }
+
+let watchedVaultPath: string | null = null;
 
 export const useAppStore = create<AppState>((set) => ({
   vaultPath: null,
@@ -65,12 +76,14 @@ export const useAppStore = create<AppState>((set) => ({
       try {
         const newNodes = await invoke<FileNode[]>("parse_vault", { path });
         set({ nodes: newNodes });
+        watchedVaultPath = path;
         invoke("start_vault_watch", { path }).catch(console.error);
       } catch (e) {
         console.error("Failed to parse vault", e);
       }
     } else {
       set({ nodes: [] });
+      watchedVaultPath = null;
     }
   },
   zenMode: false,
@@ -78,13 +91,19 @@ export const useAppStore = create<AppState>((set) => ({
   isHydrated: false,
   hydrate: async () => {
     const s = await getStore();
-    let path = await s.get<string>("vaultPath");
+    const path = await s.get<string>("vaultPath");
     set({ vaultPath: path || null, isHydrated: true });
     if (path) {
       try {
         const newNodes = await invoke<FileNode[]>("parse_vault", { path });
         set({ nodes: newNodes });
-        invoke("start_vault_watch", { path }).catch(console.error);
+        // Only (re)start the watcher when the vault path changes, not on every hydration.
+        // Hydrate is called frequently (e.g. on every file-system event), and recreating
+        // the watcher each time is expensive and can cause missed events during the swap.
+        if (path !== watchedVaultPath) {
+          watchedVaultPath = path;
+          invoke("start_vault_watch", { path }).catch(console.error);
+        }
       } catch (e) {
         console.error("Failed to parse vault", e);
       }
@@ -103,7 +122,9 @@ export const useAppStore = create<AppState>((set) => ({
   mainView: "afk",
   setMainView: (view) => set({ mainView: view }),
   isSettingsOpen: false,
-  setIsSettingsOpen: (isOpen) => set({ isSettingsOpen: isOpen })
+  setIsSettingsOpen: (isOpen) => set({ isSettingsOpen: isOpen }),
+  viewingAsset: null,
+  setViewingAsset: (asset) => set({ viewingAsset: asset }),
 }));
 
 export function useStoreHydration() {
@@ -152,19 +173,15 @@ export function buildBreadcrumbs(
   nodes: FileNode[],
   targetId: string
 ): Array<{ id: string; name: string }> | null {
-  const search = (
-    list: FileNode[],
-    acc: Array<{ id: string; name: string }>
-  ): Array<{ id: string; name: string }> | null => {
+  const acc: Array<{ id: string; name: string }> = [];
+  const search = (list: FileNode[]): boolean => {
     for (const n of list) {
-      const cur = [...acc, { id: n.id, name: n.name }];
-      if (n.id === targetId) return cur;
-      if (n.type === "Folder") {
-        const result = search(n.children, cur);
-        if (result) return result;
-      }
+      acc.push({ id: n.id, name: n.name });
+      if (n.id === targetId) return true;
+      if (n.type === "Folder" && search(n.children)) return true;
+      acc.pop();
     }
-    return null;
+    return false;
   };
-  return search(nodes, []);
+  return search(nodes) ? acc : null;
 }
