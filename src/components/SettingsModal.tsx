@@ -7,9 +7,9 @@ export function SettingsModal() {
   const isSettingsOpen = useAppStore((state) => state.isSettingsOpen);
   const setIsSettingsOpen = useAppStore((state) => state.setIsSettingsOpen);
   const accentColor = useAppStore((state) => state.accentColor);
+  const vaultPath = useAppStore((state) => state.vaultPath);
   const setAccentColor = useAppStore((state) => state.setAccentColor);
   const setVaultPath = useAppStore((state) => state.setVaultPath);
-  const hydrate = useAppStore((state) => state.hydrate);
 
   const handleChangeVault = async () => {
     try {
@@ -21,8 +21,7 @@ export function SettingsModal() {
 
       if (selectedPath && typeof selectedPath === "string") {
         await setVaultPath(selectedPath);
-        await hydrate();
-        setIsSettingsOpen(false); // Close settings on success
+        setIsSettingsOpen(false);
       }
     } catch (error) {
       console.error("Failed to change vault:", error);
@@ -97,7 +96,7 @@ export function SettingsModal() {
                       <div>
                         <span className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vault Location</span>
                         <span className="block text-xs text-gray-500 mt-1 break-all">
-                          {useAppStore.getState().vaultPath || "Not configured"}
+                          {vaultPath || "Not configured"}
                         </span>
                       </div>
                     </div>
