@@ -7,9 +7,17 @@ import { BlockNoteEditor } from "./components/Editor/BlockNoteEditor";
 import { TrashView } from "./components/TrashView";
 import { SettingsModal } from "./components/SettingsModal";
 import { VaultSelector } from "./components/VaultSelector";
+import { AssetViewer } from "./components/AssetViewer";
 import { useAppStore, useStoreHydration } from "./store";
 import { motion, AnimatePresence } from "framer-motion";
 import "./App.css";
+
+const ACCENT_COLORS: Record<string, string> = {
+  red: "#ef4444",
+  green: "#10b981",
+  purple: "#8b5cf6",
+  blue: "#3b82f6",
+};
 
 function App() {
   useStoreHydration();
@@ -43,21 +51,10 @@ function App() {
     return <VaultSelector />;
   }
 
-  // Get accent color hex for custom properties
-  const getAccentColor = () => {
-    switch (accentColor) {
-      case "red": return "#ef4444";
-      case "green": return "#10b981";
-      case "purple": return "#8b5cf6";
-      case "blue": 
-      default: return "#3b82f6";
-    }
-  };
-
   return (
-    <div 
+    <div
       className="w-full h-screen bg-transparent text-gray-900 dark:text-gray-100 flex font-sans overflow-hidden"
-      style={{ "--app-accent": getAccentColor() } as React.CSSProperties}
+      style={{ "--app-accent": ACCENT_COLORS[accentColor] ?? "#3b82f6" } as React.CSSProperties}
     >
       <div className="flex h-screen w-full relative">
         {/* Invisible draggable region for macOS framing */}
@@ -87,6 +84,7 @@ function App() {
       </div>
 
       <SettingsModal />
+      <AssetViewer />
     </div>
   );
 }
