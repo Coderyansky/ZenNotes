@@ -3,6 +3,7 @@ import { Folder, FileText, PenBox, Home, Settings, FolderPlus, Plus, Trash2, Arr
 import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 export function Sidebar() {
   const nodes = useAppStore((state) => state.nodes);
@@ -74,7 +75,8 @@ export function Sidebar() {
   // ── delete ──────────────────────────────────────────────────────────────────
   const handleDelete = async (e: React.MouseEvent, node: FileNode) => {
     e.stopPropagation();
-    if (!confirm(`Delete "${node.name}"?`)) return;
+    const confirmed = await ask(`Delete "${node.name}"?`, { title: "Delete", kind: "warning" });
+    if (!confirmed) return;
     try {
       await invoke("delete_element", { vaultPath, path: node.path });
       if (node.type === "File" && currentNote?.id === node.id) setCurrentNote(null);
@@ -182,7 +184,7 @@ export function Sidebar() {
         {/* Items */}
         <div className="space-y-0.5">
           {levelItems.length === 0 ? (
-            <p className="text-xs text-gray-500 px-3 py-2 italic">Пусто.</p>
+            <p className="text-xs text-gray-500 px-3 py-2 italic">Empty.</p>
           ) : (
             <AnimatePresence>
               {levelItems.map((node, i) => {

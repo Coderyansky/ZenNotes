@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAppStore, FileNode } from "../store";
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { Trash2, RotateCcw, XCircle, ChevronRight, Folder, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
@@ -41,7 +42,8 @@ export function TrashView() {
 
   const handleEmptyTrash = async () => {
     if (!vaultPath) return;
-    if (confirm("Are you sure you want to permanently delete all items in the trash?")) {
+    const confirmed = await ask("Are you sure you want to permanently delete all items in the trash?", { title: "Empty Trash", kind: "warning" });
+    if (confirmed) {
       try {
         await invoke("empty_trash", { vaultPath });
         await loadTrash();
@@ -105,7 +107,7 @@ export function TrashView() {
                     </div>
                     <div className="overflow-hidden">
                       <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm truncate">
-                        {item.name.replace(/_\d{10}$/, "")}
+                        {item.name.replace(/_\d+$/, "")}
                       </h3>
                       <p className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">
                         Deleted {item.type === "File" ? format(new Date(item.modified_at * 1000), "MMM d, HH:mm") : "Recently"}
