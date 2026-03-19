@@ -9,7 +9,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     #[cfg(debug_assertions)]
     {
@@ -42,6 +43,21 @@ pub fn run() {
                 None,
             );
 
+            // Register global shortcut for quick capture
+            use tauri::Emitter;
+            use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+            let shortcut = Shortcut::new(
+                Some(Modifiers::SUPER | Modifiers::SHIFT),
+                Code::KeyN,
+            );
+            let win_clone = window.clone();
+            app.handle().global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
+                let _ = win_clone.emit("quick-capture", ());
+                let _ = win_clone.show();
+                let _ = win_clone.set_focus();
+            }).ok();
+            app.handle().global_shortcut().register(shortcut).ok();
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -58,7 +74,10 @@ pub fn run() {
             notes::restore_trash_element,
             notes::empty_trash,
             notes::start_vault_watch,
-            notes::save_file_to_folder
+            notes::save_file_to_folder,
+            notes::export_notes,
+            notes::backup_vault,
+            notes::restore_vault,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
