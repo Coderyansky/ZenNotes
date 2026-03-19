@@ -8,13 +8,15 @@ import {
   useCreateBlockNote,
   FormattingToolbar,
   createReactBlockSpec,
+  TableHandlesController,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import { MantineProvider, createTheme, Menu } from "@mantine/core";
-import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
+import { BlockNoteSchema, defaultBlockSpecs, createCodeBlockSpec } from "@blocknote/core";
+import { createHighlighter } from "shiki";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, ChevronDown, ChevronUp, Maximize2 } from "lucide-react";
+import { FileText, ChevronDown, ChevronUp, Maximize2, FileDown, Download } from "lucide-react";
 
 const mantineTheme = createTheme({
   components: {
@@ -108,9 +110,36 @@ const makePDFBlock = createReactBlockSpec(
   }
 );
 
+const { codeBlock: _unused, ...defaultBlockSpecsWithoutCode } = defaultBlockSpecs;
+
 const editorSchema = BlockNoteSchema.create({
   blockSpecs: {
-    ...defaultBlockSpecs,
+    ...defaultBlockSpecsWithoutCode,
+    codeBlock: createCodeBlockSpec({
+      createHighlighter: () =>
+        createHighlighter({
+          themes: ["github-dark", "github-light"],
+          langs: [
+            "javascript", "typescript", "python", "rust", "bash",
+            "json", "css", "html", "markdown", "go", "sql", "tsx", "jsx",
+          ],
+        }),
+      supportedLanguages: {
+        javascript: { name: "JavaScript", aliases: ["js"] },
+        typescript: { name: "TypeScript", aliases: ["ts"] },
+        tsx: { name: "TSX", aliases: [] },
+        jsx: { name: "JSX", aliases: [] },
+        python: { name: "Python", aliases: ["py"] },
+        rust: { name: "Rust", aliases: ["rs"] },
+        bash: { name: "Bash", aliases: ["sh", "shell"] },
+        json: { name: "JSON", aliases: [] },
+        css: { name: "CSS", aliases: [] },
+        html: { name: "HTML", aliases: [] },
+        markdown: { name: "Markdown", aliases: ["md"] },
+        go: { name: "Go", aliases: ["golang"] },
+        sql: { name: "SQL", aliases: [] },
+      },
+    }),
     pdfEmbed: makePDFBlock(),
   },
 });
@@ -190,6 +219,13 @@ function DropOverlay({ visible, hasPdf }: { visible: boolean; hasPdf: boolean })
   );
 }
 
+/* ── Font family map ──────────────────────────────────────────────────── */
+const FONT_FAMILY_MAP = {
+  sans: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif",
+  serif: "Georgia, 'Times New Roman', Times, serif",
+  mono: "'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Monaco, monospace",
+};
+
 /* ── Main Editor Component ────────────────────────────────────────────── */
 
 export function BlockNoteEditor() {
@@ -199,6 +235,7 @@ export function BlockNoteEditor() {
   const setZenMode = useAppStore((state) => state.setZenMode);
   const setMainView = useAppStore((state) => state.setMainView);
   const setCurrentNote = useAppStore((state) => state.setCurrentNote);
+  const editorSettings = useAppStore((state) => state.editorSettings);
 
   const [title, setTitle] = useState("");
   const titleRef = useRef("");
@@ -345,7 +382,6 @@ export function BlockNoteEditor() {
     dragCounter.current++;
     if (e.dataTransfer.types.includes("Files")) {
       setIsDragOver(true);
-      // Try to detect PDF from items
       const items = Array.from(e.dataTransfer.items);
       const hasPdf = items.some(
         (it) => it.type === "application/pdf" || it.type === ""
@@ -390,16 +426,14 @@ export function BlockNoteEditor() {
         }
         return;
       }
-      // Non-PDFs: let BlockNote handle (images, etc.)
     },
     [insertPdf]
   );
 
-  // ── paste handler (backup for images not caught by BlockNote) ──────────
+  // ── paste handler ──────────────────────────────────────────────────────
   const handlePaste = useCallback(
     async (e: React.ClipboardEvent) => {
       const items = Array.from(e.clipboardData?.items ?? []);
-      // BlockNote handles image paste via uploadFile — only intercept PDFs
       const pdfItem = items.find((i) => i.type === "application/pdf");
       if (pdfItem) {
         e.preventDefault();
@@ -409,6 +443,31 @@ export function BlockNoteEditor() {
     },
     [insertPdf]
   );
+
+  // ── PDF print export ───────────────────────────────────────────────────
+  const handlePrintExport = useCallback(() => {
+    window.print();
+  }, []);
+
+  // ── Markdown export ────────────────────────────────────────────────────
+  const handleMarkdownExport = useCallback(async () => {
+    if (!currentNote) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const destPath = await open({ directory: true, multiple: false, title: "Export Note To..." });
+      if (!destPath || typeof destPath !== "string") return;
+      await invoke("export_notes", { paths: [currentNote.path], destPath });
+    } catch (e) {
+      console.error("Export failed:", e);
+    }
+  }, [currentNote]);
+
+  // ── Editor style from settings ─────────────────────────────────────────
+  const editorStyle: React.CSSProperties = {
+    fontSize: `${editorSettings.fontSize}px`,
+    lineHeight: editorSettings.lineHeight,
+    fontFamily: FONT_FAMILY_MAP[editorSettings.fontFamily],
+  };
 
   if (!currentNote) {
     return (
@@ -441,15 +500,31 @@ export function BlockNoteEditor() {
           </svg>
           Back
         </button>
-        <button
-          onClick={() => setZenMode(!zenMode)}
-          className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 transition-all"
-          title={zenMode ? "Exit Zen Mode" : "Enter Zen Mode (Focus)"}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleMarkdownExport}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            title="Export as Markdown"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handlePrintExport}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            title="Export as PDF (Print)"
+          >
+            <FileDown className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setZenMode(!zenMode)}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            title={zenMode ? "Exit Zen Mode" : "Enter Zen Mode (Focus)"}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* ── Title ────────────────────────────────────────────────────── */}
@@ -469,6 +544,7 @@ export function BlockNoteEditor() {
           }
         }}
         placeholder="Untitled"
+        style={{ fontFamily: FONT_FAMILY_MAP[editorSettings.fontFamily] }}
         className="w-full text-4xl font-bold bg-transparent outline-none text-gray-900 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-600 mb-6 leading-tight pl-[54px]"
       />
 
@@ -476,6 +552,7 @@ export function BlockNoteEditor() {
       <div
         ref={editorContainerRef}
         className="flex-1 overflow-y-auto no-scrollbar pb-32 outline-none font-sans relative"
+        style={editorStyle}
         onDragEnter={handleContainerDragEnter}
         onDragLeave={handleContainerDragLeave}
         onDragOver={handleContainerDragOver}
@@ -499,6 +576,7 @@ export function BlockNoteEditor() {
             >
               <FormattingToolbar />
             </div>
+            <TableHandlesController />
           </BlockNoteView>
         </MantineProvider>
       </div>
@@ -546,6 +624,16 @@ export function BlockNoteEditor() {
         @media (prefers-color-scheme: dark) {
           .animate-toolbar-in > .bn-toolbar {
             box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06) !important;
+          }
+          /* Table handles dark mode */
+          .bn-table-handle {
+            background-color: #2b2d31 !important;
+            border-color: #404249 !important;
+          }
+          .bn-table-cell-menu {
+            background-color: #2b2d31 !important;
+            border-color: #404249 !important;
+            color: #f3f4f6 !important;
           }
         }
       `}</style>
