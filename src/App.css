@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-system-gray-100: #f2f2f7;
+  --color-system-gray-200: #e5e5ea;
+  --color-system-gray-300: #d1d1d6;
+  --color-system-gray-400: #c7c7cc;
+  --color-system-gray-500: #aeaeb2;
+  --color-system-gray-600: #8e8e93;
+  --color-system-dark-1: #1c1c1e;
+  --color-system-dark-2: #2c2c2e;
+  --color-system-dark-3: #3a3a3c;
+  
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  html, body {
+    @apply antialiased text-gray-900 bg-transparent h-full w-full overflow-hidden;
+    font-family: var(--font-sans);
+  }
+
+  /* macOS smooth scroll */
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Support for Dark Mode mapping if needed, let's use tailwind dark class or media query */
+  @media (prefers-color-scheme: dark) {
+    html, body {
+      @apply text-gray-100;
+    }
+  }
+
+  #root {
+    @apply h-full w-full bg-transparent flex flex-col;
+  }
+}
+
+/* Custom styles for window controls inset (macOS spacing) */
+.draggable-region {
+  -webkit-app-region: drag;
+  @apply h-8 w-full absolute top-0 left-0 z-50;
+}
