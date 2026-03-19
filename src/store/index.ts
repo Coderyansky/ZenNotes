@@ -29,6 +29,18 @@ export type ViewingAsset = {
 
 export type NoteFile = Extract<FileNode, { type: "File" }>;
 
+export type EditorSettings = {
+  fontSize: number;
+  lineHeight: number;
+  fontFamily: "sans" | "mono" | "serif";
+};
+
+const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+  fontSize: 16,
+  lineHeight: 1.7,
+  fontFamily: "sans",
+};
+
 interface AppState {
   vaultPath: string | null;
   setVaultPath: (path: string | null) => Promise<void>;
@@ -36,7 +48,7 @@ interface AppState {
   setZenMode: (isZen: boolean) => void;
   isHydrated: boolean;
   hydrate: () => Promise<void>;
-  
+
   // V3 Store Architecture
   nodes: FileNode[];
   setNodes: (nodes: FileNode[]) => void;
@@ -46,15 +58,38 @@ interface AppState {
   setSelectedFolderId: (id: string | null) => void;
   activeFilter: "all" | null;
   setActiveFilter: (filter: "all" | null) => void;
-  accentColor: "blue" | "red" | "green" | "purple";
-  setAccentColor: (color: "blue" | "red" | "green" | "purple") => void;
+  accentColor: "blue" | "red" | "green" | "purple" | "orange" | "yellow" | "teal" | "pink" | "indigo";
+  setAccentColor: (color: AppState["accentColor"]) => void;
+  colorScheme: "system" | "light" | "dark" | "sepia" | "midnight";
+  setColorScheme: (scheme: AppState["colorScheme"]) => void;
 
   mainView: "afk" | "folders" | "editor" | "trash";
   setMainView: (view: "afk" | "folders" | "editor" | "trash") => void;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
+  isShortcutsOpen: boolean;
+  setIsShortcutsOpen: (isOpen: boolean) => void;
   viewingAsset: ViewingAsset | null;
   setViewingAsset: (asset: ViewingAsset | null) => void;
+
+  // Pinned notes
+  pinnedNotes: string[];
+  togglePin: (path: string) => Promise<void>;
+
+  // Editor settings
+  editorSettings: EditorSettings;
+  setEditorSettings: (settings: Partial<EditorSettings>) => Promise<void>;
+
+  // Custom hotkeys
+  customHotkeys: Record<string, string>;
+  setCustomHotkey: (action: string, combo: string) => Promise<void>;
+
+  // Backup
+  backupPath: string | null;
+  setBackupPath: (path: string | null) => Promise<void>;
+
+  // Quick create note
+  createNewNote: () => Promise<void>;
 }
 
 let store: Store | null = null;
@@ -65,7 +100,7 @@ async function getStore() {
 
 let watchedVaultPath: string | null = null;
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   vaultPath: null,
   setVaultPath: async (path) => {
     set({ vaultPath: path });
@@ -92,14 +127,28 @@ export const useAppStore = create<AppState>((set) => ({
   hydrate: async () => {
     const s = await getStore();
     const path = await s.get<string>("vaultPath");
-    set({ vaultPath: path || null, isHydrated: true });
+    const accentColor = await s.get<AppState["accentColor"]>("accentColor");
+    const colorScheme = await s.get<AppState["colorScheme"]>("colorScheme");
+    const pinnedNotes = await s.get<string[]>("pinnedNotes");
+    const editorSettings = await s.get<EditorSettings>("editorSettings");
+    const customHotkeys = await s.get<Record<string, string>>("customHotkeys");
+    const backupPath = await s.get<string>("backupPath");
+
+    set({
+      vaultPath: path || null,
+      isHydrated: true,
+      accentColor: accentColor || "blue",
+      colorScheme: colorScheme || "system",
+      pinnedNotes: pinnedNotes || [],
+      editorSettings: editorSettings || DEFAULT_EDITOR_SETTINGS,
+      customHotkeys: customHotkeys || {},
+      backupPath: backupPath || null,
+    });
+
     if (path) {
       try {
         const newNodes = await invoke<FileNode[]>("parse_vault", { path });
         set({ nodes: newNodes });
-        // Only (re)start the watcher when the vault path changes, not on every hydration.
-        // Hydrate is called frequently (e.g. on every file-system event), and recreating
-        // the watcher each time is expensive and can cause missed events during the swap.
         if (path !== watchedVaultPath) {
           watchedVaultPath = path;
           invoke("start_vault_watch", { path }).catch(console.error);
@@ -118,13 +167,94 @@ export const useAppStore = create<AppState>((set) => ({
   activeFilter: null,
   setActiveFilter: (filter) => set({ activeFilter: filter, selectedFolderId: null, mainView: "folders", currentNote: null }),
   accentColor: "blue",
-  setAccentColor: (color) => set({ accentColor: color }),
+  setAccentColor: async (color) => {
+    set({ accentColor: color });
+    const s = await getStore();
+    await s.set("accentColor", color);
+    await s.save();
+  },
+  colorScheme: "system",
+  setColorScheme: async (scheme) => {
+    set({ colorScheme: scheme });
+    const s = await getStore();
+    await s.set("colorScheme", scheme);
+    await s.save();
+  },
   mainView: "afk",
   setMainView: (view) => set({ mainView: view }),
   isSettingsOpen: false,
   setIsSettingsOpen: (isOpen) => set({ isSettingsOpen: isOpen }),
+  isShortcutsOpen: false,
+  setIsShortcutsOpen: (isOpen) => set({ isShortcutsOpen: isOpen }),
   viewingAsset: null,
   setViewingAsset: (asset) => set({ viewingAsset: asset }),
+
+  // Pinned notes
+  pinnedNotes: [],
+  togglePin: async (path) => {
+    const current = get().pinnedNotes;
+    const updated = current.includes(path)
+      ? current.filter((p) => p !== path)
+      : [...current, path];
+    set({ pinnedNotes: updated });
+    const s = await getStore();
+    await s.set("pinnedNotes", updated);
+    await s.save();
+  },
+
+  // Editor settings
+  editorSettings: DEFAULT_EDITOR_SETTINGS,
+  setEditorSettings: async (settings) => {
+    const current = get().editorSettings;
+    const updated = { ...current, ...settings };
+    set({ editorSettings: updated });
+    const s = await getStore();
+    await s.set("editorSettings", updated);
+    await s.save();
+  },
+
+  // Custom hotkeys
+  customHotkeys: {},
+  setCustomHotkey: async (action, combo) => {
+    const current = get().customHotkeys;
+    const updated = { ...current, [action]: combo };
+    set({ customHotkeys: updated });
+    const s = await getStore();
+    await s.set("customHotkeys", updated);
+    await s.save();
+  },
+
+  // Backup
+  backupPath: null,
+  setBackupPath: async (path) => {
+    set({ backupPath: path });
+    const s = await getStore();
+    await s.set("backupPath", path);
+    await s.save();
+  },
+
+  // Quick create note
+  createNewNote: async () => {
+    const { vaultPath, selectedFolderId } = get();
+    if (!vaultPath) return;
+    const targetDir = selectedFolderId ?? vaultPath;
+    const newNoteName = `Untitled_${Date.now()}.md`;
+    const sep = targetDir.includes("\\") ? "\\" : "/";
+    const fullPath = `${targetDir}${sep}${newNoteName}`;
+    try {
+      await invoke("write_note_content", { path: fullPath, content: "# " });
+      await get().hydrate();
+      get().setCurrentNote({
+        type: "File",
+        id: fullPath,
+        name: newNoteName,
+        path: fullPath,
+        modified_at: Math.floor(Date.now() / 1000),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  },
 }));
 
 export function useStoreHydration() {
