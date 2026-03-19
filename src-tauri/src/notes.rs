@@ -415,3 +415,106 @@ pub fn empty_trash(vault_path: &str) -> Result<(), String> {
 pub fn rename_element(old_path: &str, new_path: &str) -> Result<(), String> {
     std::fs::rename(old_path, new_path).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn export_notes(paths: Vec<String>, dest_path: String) -> Result<(), String> {
+    let dest = Path::new(&dest_path);
+    if !dest.exists() {
+        std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    }
+
+    for src_path in &paths {
+        let src = Path::new(src_path);
+        if !src.exists() {
+            continue;
+        }
+        if src.is_file() {
+            let file_name = src.file_name().unwrap_or_default();
+            let mut dest_file = dest.join(file_name);
+            let mut counter = 1;
+            while dest_file.exists() {
+                let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+                let ext = src.extension().and_then(|s| s.to_str()).unwrap_or("md");
+                dest_file = dest.join(format!("{}_{}.{}", stem, counter, ext));
+                counter += 1;
+            }
+            std::fs::copy(src, dest_file).map_err(|e| e.to_string())?;
+        } else if src.is_dir() {
+            let dir_name = src.file_name().unwrap_or_default();
+            let dest_dir = dest.join(dir_name);
+            for entry in walkdir::WalkDir::new(src).into_iter().filter_map(|e| e.ok()) {
+                let relative = entry.path().strip_prefix(src).map_err(|e| e.to_string())?;
+                let target = dest_dir.join(relative);
+                if entry.file_type().is_dir() {
+                    std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+                } else {
+                    if let Some(parent) = target.parent() {
+                        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                    }
+                    std::fs::copy(entry.path(), target).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn backup_vault(vault_path: String, dest_path: String) -> Result<String, String> {
+    let dest = Path::new(&dest_path);
+    if !dest.exists() {
+        std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let backup_dir_name = format!("ZenNotes_backup_{}", timestamp);
+    let backup_dir = dest.join(&backup_dir_name);
+    std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+
+    let src = Path::new(&vault_path);
+    for entry in walkdir::WalkDir::new(src).into_iter().filter_map(|e| e.ok()) {
+        let relative = entry.path().strip_prefix(src).map_err(|e| e.to_string())?;
+        let target = backup_dir.join(relative);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::copy(entry.path(), &target).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(backup_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn restore_vault(backup_path: String, vault_path: String) -> Result<(), String> {
+    let src = Path::new(&backup_path);
+    if !src.exists() || !src.is_dir() {
+        return Err("Backup path does not exist or is not a directory".into());
+    }
+
+    let dest = Path::new(&vault_path);
+    if !dest.exists() {
+        std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    }
+
+    for entry in walkdir::WalkDir::new(src).into_iter().filter_map(|e| e.ok()) {
+        let relative = entry.path().strip_prefix(src).map_err(|e| e.to_string())?;
+        let target = dest.join(relative);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::copy(entry.path(), &target).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
