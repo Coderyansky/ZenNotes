@@ -10,7 +10,7 @@
   --color-system-dark-1: #1c1c1e;
   --color-system-dark-2: #2c2c2e;
   --color-system-dark-3: #3a3a3c;
-  
+
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -42,4 +42,67 @@
 .draggable-region {
   -webkit-app-region: drag;
   @apply h-8 w-full absolute top-0 left-0 z-50;
+}
+
+/* ── Color Scheme Overrides ───────────────────────────────────────────── */
+
+[data-scheme="light"] {
+  color-scheme: light !important;
+}
+
+[data-scheme="dark"] {
+  color-scheme: dark !important;
+}
+
+[data-scheme="midnight"] {
+  color-scheme: dark !important;
+  background-color: #000000 !important;
+  color: #e5e7eb !important;
+}
+
+[data-scheme="midnight"] main,
+[data-scheme="midnight"] aside {
+  background-color: #000000 !important;
+}
+
+[data-scheme="sepia"] {
+  color-scheme: light !important;
+  background-color: #f4ede0 !important;
+  color: #4a3728 !important;
+}
+
+[data-scheme="sepia"] main,
+[data-scheme="sepia"] aside {
+  background-color: #f4ede0 !important;
+}
+
+[data-scheme="sepia"] main {
+  color: #4a3728 !important;
+}
+
+/* ── PDF Print Export ────────────────────────────────────────────────── */
+
+@media print {
+  aside,
+  [data-tauri-drag-region],
+  .bn-toolbar,
+  button {
+    display: none !important;
+  }
+
+  main {
+    width: 100% !important;
+    max-width: 100% !important;
+    position: static !important;
+  }
+
+  .bn-editor {
+    padding: 0 !important;
+  }
+
+  pre, code {
+    background-color: #f3f4f6 !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 4px !important;
+  }
 }

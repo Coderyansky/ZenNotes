@@ -6,9 +6,11 @@ import { MainFolderBrowser } from "./components/MainFolderBrowser";
 import { BlockNoteEditor } from "./components/Editor/BlockNoteEditor";
 import { TrashView } from "./components/TrashView";
 import { SettingsModal } from "./components/SettingsModal";
+import { KeyboardShortcutsModal } from "./components/KeyboardShortcutsModal";
 import { VaultSelector } from "./components/VaultSelector";
 import { AssetViewer } from "./components/AssetViewer";
 import { useAppStore, useStoreHydration } from "./store";
+import { HOTKEY_ACTIONS } from "./lib/hotkeys";
 import { motion, AnimatePresence } from "framer-motion";
 import "./App.css";
 
@@ -17,6 +19,11 @@ const ACCENT_COLORS: Record<string, string> = {
   green: "#10b981",
   purple: "#8b5cf6",
   blue: "#3b82f6",
+  orange: "#f97316",
+  yellow: "#eab308",
+  teal: "#14b8a6",
+  pink: "#ec4899",
+  indigo: "#6366f1",
 };
 
 function App() {
@@ -24,9 +31,28 @@ function App() {
   const isHydrated = useAppStore((state) => state.isHydrated);
   const vaultPath = useAppStore((state) => state.vaultPath);
   const accentColor = useAppStore((state) => state.accentColor);
+  const colorScheme = useAppStore((state) => state.colorScheme);
   const mainView = useAppStore((state) => state.mainView);
   const hydrate = useAppStore((state) => state.hydrate);
+  const setIsSettingsOpen = useAppStore((state) => state.setIsSettingsOpen);
+  const setIsShortcutsOpen = useAppStore((state) => state.setIsShortcutsOpen);
+  const setMainView = useAppStore((state) => state.setMainView);
+  const setActiveFilter = useAppStore((state) => state.setActiveFilter);
+  const setZenMode = useAppStore((state) => state.setZenMode);
+  const zenMode = useAppStore((state) => state.zenMode);
+  const customHotkeys = useAppStore((state) => state.customHotkeys);
+  const createNewNote = useAppStore((state) => state.createNewNote);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Apply color scheme to document root
+  useEffect(() => {
+    const root = document.documentElement;
+    if (colorScheme === "system") {
+      root.removeAttribute("data-scheme");
+    } else {
+      root.setAttribute("data-scheme", colorScheme);
+    }
+  }, [colorScheme]);
 
   useEffect(() => {
     const unlisten = listen("vault-changed", () => {
@@ -38,6 +64,71 @@ function App() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [hydrate]);
+
+  // Quick capture global event
+  useEffect(() => {
+    const unlisten = listen("quick-capture", () => {
+      createNewNote();
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [createNewNote]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const getBinding = (actionId: string): string => {
+      if (customHotkeys[actionId]) return customHotkeys[actionId];
+      return HOTKEY_ACTIONS.find((a) => a.id === actionId)?.default ?? "";
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+
+      const isMod = e.metaKey || e.ctrlKey;
+
+      // Cmd/Ctrl+, → Settings
+      if (isMod && e.key === ",") {
+        e.preventDefault();
+        setIsSettingsOpen(true);
+        return;
+      }
+
+      // Cmd/Ctrl+/ → Shortcuts
+      if (isMod && e.key === "/") {
+        e.preventDefault();
+        setIsShortcutsOpen(true);
+        return;
+      }
+
+      if (isMod) return; // Don't handle other mod combos as single-key shortcuts
+
+      const key = e.key.toLowerCase();
+
+      if (key === getBinding("new_note")) {
+        e.preventDefault();
+        createNewNote();
+      } else if (key === getBinding("toggle_zen")) {
+        e.preventDefault();
+        setZenMode(!zenMode);
+      } else if (key === getBinding("go_home")) {
+        e.preventDefault();
+        setMainView("afk");
+      } else if (key === getBinding("open_settings")) {
+        e.preventDefault();
+        setIsSettingsOpen(true);
+      } else if (key === getBinding("open_shortcuts")) {
+        e.preventDefault();
+        setIsShortcutsOpen(true);
+      } else if (key === getBinding("open_gallery")) {
+        e.preventDefault();
+        setActiveFilter("all");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [customHotkeys, zenMode, createNewNote, setIsSettingsOpen, setIsShortcutsOpen, setMainView, setActiveFilter, setZenMode]);
 
   if (!isHydrated) {
     return (
@@ -84,6 +175,7 @@ function App() {
       </div>
 
       <SettingsModal />
+      <KeyboardShortcutsModal />
       <AssetViewer />
     </div>
   );
