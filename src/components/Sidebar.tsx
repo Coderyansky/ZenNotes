@@ -1,5 +1,5 @@
 import { useAppStore, FileNode, NoteFile, getCurrentLevelItems, buildBreadcrumbs } from "../store";
-import { Folder, FileText, PenBox, Home, Settings, FolderPlus, Plus, Trash2, ArrowLeft } from "lucide-react";
+import { Folder, FileText, PenBox, Home, Settings, FolderPlus, Plus, Trash2, ArrowLeft, Star, Keyboard } from "lucide-react";
 import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
@@ -10,6 +10,7 @@ export function Sidebar() {
   const activeFilter = useAppStore((state) => state.activeFilter);
   const setActiveFilter = useAppStore((state) => state.setActiveFilter);
   const setIsSettingsOpen = useAppStore((state) => state.setIsSettingsOpen);
+  const setIsShortcutsOpen = useAppStore((state) => state.setIsShortcutsOpen);
   const mainView = useAppStore((state) => state.mainView);
   const setMainView = useAppStore((state) => state.setMainView);
   const vaultPath = useAppStore((state) => state.vaultPath);
@@ -17,6 +18,8 @@ export function Sidebar() {
   const setSelectedFolderId = useAppStore((state) => state.setSelectedFolderId);
   const currentNote = useAppStore((state) => state.currentNote);
   const setCurrentNote = useAppStore((state) => state.setCurrentNote);
+  const pinnedNotes = useAppStore((state) => state.pinnedNotes);
+  const togglePin = useAppStore((state) => state.togglePin);
 
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -31,6 +34,22 @@ export function Sidebar() {
     if (parentCrumb) setSelectedFolderId(parentCrumb.id);
     else setActiveFilter("all");
   };
+
+  // ── find pinned note FileNodes ───────────────────────────────────────────────
+  const findNode = (list: FileNode[], path: string): NoteFile | null => {
+    for (const n of list) {
+      if (n.type === "File" && n.path === path) return n as NoteFile;
+      if (n.type === "Folder") {
+        const found = findNode(n.children, path);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const pinnedFileNodes = pinnedNotes
+    .map((p) => findNode(nodes, p))
+    .filter((n): n is NoteFile => n !== null);
 
   // ── note creation ───────────────────────────────────────────────────────────
   const handleCreateNote = async (e: React.MouseEvent) => {
@@ -85,6 +104,60 @@ export function Sidebar() {
     } catch (err) { console.error(err); }
   };
 
+  const renderItem = (node: FileNode, i: number) => {
+    const isFolder = node.type === "Folder";
+    const isActive = isFolder
+      ? selectedFolderId === node.id
+      : currentNote?.id === node.id;
+    const displayName = isFolder
+      ? node.name
+      : (node.type === "File" && node.snippet?.split("\n")[0].replace(/^#+\s*/, "").trim()) || "Untitled";
+    const isPinned = node.type === "File" && pinnedNotes.includes(node.path);
+
+    return (
+      <motion.div
+        key={node.id}
+        initial={{ opacity: 0, x: -8 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -8 }}
+        transition={{ delay: i * 0.03, duration: 0.18 }}
+        className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-lg transition-colors group ${
+          isActive
+            ? "bg-black/5 dark:bg-white/5 text-[var(--app-accent)] font-medium"
+            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+        }`}
+        onClick={() => {
+          if (isFolder) setSelectedFolderId(node.id);
+          else if (node.type === "File") setCurrentNote(node as NoteFile);
+        }}
+      >
+        {isFolder ? (
+          <Folder className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-[var(--app-accent)]" : "text-gray-400 group-hover:text-gray-500"}`} />
+        ) : (
+          <FileText className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-[var(--app-accent)]" : "text-gray-400 group-hover:text-gray-500"}`} />
+        )}
+        <span className="text-sm line-clamp-1 flex-1">{displayName}</span>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+          {node.type === "File" && (
+            <button
+              onClick={(e) => { e.stopPropagation(); togglePin(node.path); }}
+              className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded transition-all"
+              title={isPinned ? "Unpin" : "Pin"}
+            >
+              <Star className={`w-3 h-3 ${isPinned ? "text-[var(--app-accent)] fill-[var(--app-accent)]" : "text-gray-400"}`} />
+            </button>
+          )}
+          <button
+            onClick={(e) => handleDelete(e, node)}
+            className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded transition-all text-red-500 flex-shrink-0"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </motion.div>
+    );
+  };
+
   return (
     <div className="w-64 flex-shrink-0 h-full bg-[#f4f5f5] dark:bg-[#1a1b1e] border-r border-[#e3e4e5] dark:border-[#2b2d31] flex flex-col pt-8">
       {/* App Branding */}
@@ -119,6 +192,50 @@ export function Sidebar() {
 
       {/* Current Level List */}
       <div className="flex-1 overflow-y-auto no-scrollbar px-2">
+
+        {/* Pinned section */}
+        <AnimatePresence>
+          {pinnedFileNodes.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-3"
+            >
+              <h2 className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest truncate px-3 mb-1">
+                Pinned
+              </h2>
+              <div className="space-y-0.5">
+                {pinnedFileNodes.map((node) => {
+                  const isActive = currentNote?.id === node.id;
+                  const displayName = node.snippet?.split("\n")[0].replace(/^#+\s*/, "").trim() || "Untitled";
+                  return (
+                    <div
+                      key={node.id}
+                      className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-lg transition-colors group ${
+                        isActive
+                          ? "bg-black/5 dark:bg-white/5 text-[var(--app-accent)] font-medium"
+                          : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                      }`}
+                      onClick={() => setCurrentNote(node)}
+                    >
+                      <Star className={`w-3.5 h-3.5 flex-shrink-0 fill-[var(--app-accent)] text-[var(--app-accent)]`} />
+                      <span className="text-sm line-clamp-1 flex-1">{displayName}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); togglePin(node.path); }}
+                        className="p-1 opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 rounded transition-all"
+                        title="Unpin"
+                      >
+                        <Star className="w-3 h-3 text-[var(--app-accent)] fill-[var(--app-accent)]" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Section header */}
         <div className="flex items-center justify-between pl-1 pr-1 mb-2 group">
           <div className="flex items-center gap-1 min-w-0">
@@ -187,60 +304,27 @@ export function Sidebar() {
             <p className="text-xs text-gray-500 px-3 py-2 italic">Empty.</p>
           ) : (
             <AnimatePresence>
-              {levelItems.map((node, i) => {
-                const isFolder = node.type === "Folder";
-                const isActive = isFolder
-                  ? selectedFolderId === node.id
-                  : currentNote?.id === node.id;
-                const displayName = isFolder
-                  ? node.name
-                  : (node.type === "File" && node.snippet?.split("\n")[0].replace(/^#+\s*/, "").trim()) || "Untitled";
-
-                return (
-                  <motion.div
-                    key={node.id}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -8 }}
-                    transition={{ delay: i * 0.03, duration: 0.18 }}
-                    className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer rounded-lg transition-colors group ${
-                      isActive
-                        ? "bg-black/5 dark:bg-white/5 text-[var(--app-accent)] font-medium"
-                        : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-                    }`}
-                    onClick={() => {
-                      if (isFolder) setSelectedFolderId(node.id);
-                      else if (node.type === "File") setCurrentNote(node as NoteFile);
-                    }}
-                  >
-                    {isFolder ? (
-                      <Folder className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-[var(--app-accent)]" : "text-gray-400 group-hover:text-gray-500"}`} />
-                    ) : (
-                      <FileText className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-[var(--app-accent)]" : "text-gray-400 group-hover:text-gray-500"}`} />
-                    )}
-                    <span className="text-sm line-clamp-1 flex-1">{displayName}</span>
-                    <button
-                      onClick={(e) => handleDelete(e, node)}
-                      className="p-1 opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 rounded transition-all text-red-500 flex-shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </motion.div>
-                );
-              })}
+              {levelItems.map((node, i) => renderItem(node, i))}
             </AnimatePresence>
           )}
         </div>
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-[#e3e4e5] dark:border-[#2b2d31]">
+      <div className="p-4 border-t border-[#e3e4e5] dark:border-[#2b2d31] flex items-center gap-1">
         <button
           onClick={() => setIsSettingsOpen(true)}
-          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors"
+          className="flex items-center gap-2 flex-1 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors"
         >
           <Settings className="w-4 h-4" />
           <span>Settings</span>
+        </button>
+        <button
+          onClick={() => setIsShortcutsOpen(true)}
+          className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors"
+          title="Keyboard Shortcuts"
+        >
+          <Keyboard className="w-4 h-4" />
         </button>
       </div>
     </div>

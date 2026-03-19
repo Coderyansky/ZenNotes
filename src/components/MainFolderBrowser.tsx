@@ -8,7 +8,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   FileText, ChevronRight, PenBox, FolderPlus, Trash2, Folder,
-  FolderOpen, Image, FileText as PdfIcon, Upload,
+  FolderOpen, Image, FileText as PdfIcon, Upload, Star, Download,
 } from "lucide-react";
 
 export function MainFolderBrowser() {
@@ -22,6 +22,8 @@ export function MainFolderBrowser() {
   const setMainView = useAppStore((state) => state.setMainView);
   const vaultPath = useAppStore((state) => state.vaultPath);
   const setViewingAsset = useAppStore((s) => s.setViewingAsset);
+  const pinnedNotes = useAppStore((state) => state.pinnedNotes);
+  const togglePin = useAppStore((state) => state.togglePin);
 
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -88,6 +90,17 @@ export function MainFolderBrowser() {
       if (node.type === "File" && currentNote?.id === node.id) setCurrentNote(null);
       await useAppStore.getState().hydrate();
     } catch (err) { console.error(err); }
+  };
+
+  // ── export note ─────────────────────────────────────────────────────────────
+  const handleExportNote = async (e: React.MouseEvent, node: FileNode) => {
+    e.stopPropagation();
+    try {
+      const { open: openDialog } = await import("@tauri-apps/plugin-dialog");
+      const destPath = await openDialog({ directory: true, multiple: false, title: "Export Note To..." });
+      if (!destPath || typeof destPath !== "string") return;
+      await invoke("export_notes", { paths: [node.path], destPath });
+    } catch (err) { console.error("Export failed:", err); }
   };
 
   // ── open in finder ──────────────────────────────────────────────────────────
@@ -448,6 +461,7 @@ export function MainFolderBrowser() {
                 const titleLine = node.snippet?.split("\n")[0].replace(/^#+\s*/, "").trim();
                 const cardTitle = titleLine || "Untitled";
                 const cardBody = node.snippet?.split("\n").slice(1).join(" ").trim();
+                const isPinned = pinnedNotes.includes(node.path);
 
                 return (
                   <motion.div key={node.id} {...cardMotion(i)}>
@@ -464,12 +478,28 @@ export function MainFolderBrowser() {
                             {format(new Date(node.modified_at * 1000), "MMM d")}
                           </span>
                         </div>
-                        <button
-                          onClick={(e) => handleDelete(e, node)}
-                          className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all text-red-500"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); togglePin(node.path); }}
+                            className={`p-1.5 rounded-lg transition-all ${isPinned ? "text-[var(--app-accent)]" : "opacity-0 group-hover:opacity-100 text-gray-400 hover:bg-black/5 dark:hover:bg-white/10"}`}
+                            title={isPinned ? "Unpin" : "Pin"}
+                          >
+                            <Star className={`w-4 h-4 ${isPinned ? "fill-[var(--app-accent)]" : ""}`} />
+                          </button>
+                          <button
+                            onClick={(e) => handleExportNote(e, node)}
+                            className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 rounded-lg transition-all text-gray-400"
+                            title="Export .md"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDelete(e, node)}
+                            className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all text-red-500"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                       <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-base line-clamp-1 mb-2">
                         {cardTitle}
