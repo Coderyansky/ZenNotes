@@ -3,12 +3,10 @@ import { useAppStore } from "../store";
 import { FolderOpen } from "lucide-react";
 import { format } from "date-fns";
 import { motion } from "framer-motion";
-import { ActivityHeatmap } from "./ActivityHeatmap";
 
 export function HomeScreen() {
   const setMainView = useAppStore((state) => state.setMainView);
   const setActiveFilter = useAppStore((state) => state.setActiveFilter);
-  const nodes = useAppStore((state) => state.nodes);
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -49,18 +47,6 @@ export function HomeScreen() {
           </div>
         </button>
 
-        {/* Activity Heatmap */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3, duration: 0.4 }}
-          className="w-full mt-4 p-5 bg-white dark:bg-[#2b2d31] border border-gray-200 dark:border-[#404249] rounded-2xl shadow-sm"
-        >
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 text-left">
-            Activity
-          </h2>
-          <ActivityHeatmap nodes={nodes} />
-        </motion.div>
       </motion.div>
     </div>
   );

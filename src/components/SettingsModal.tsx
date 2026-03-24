@@ -26,8 +26,6 @@ export function SettingsModal() {
   const setColorScheme = useAppStore((state) => state.setColorScheme);
   const vaultPath = useAppStore((state) => state.vaultPath);
   const setVaultPath = useAppStore((state) => state.setVaultPath);
-  const editorSettings = useAppStore((state) => state.editorSettings);
-  const setEditorSettings = useAppStore((state) => state.setEditorSettings);
   const backupPath = useAppStore((state) => state.backupPath);
   const setBackupPath = useAppStore((state) => state.setBackupPath);
   const hydrate = useAppStore((state) => state.hydrate);
@@ -172,66 +170,6 @@ export function SettingsModal() {
                           {scheme}
                         </button>
                       ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* ── Editor ── */}
-                <div className="space-y-3">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Editor</h3>
-
-                  <div className="flex flex-col gap-3 p-3 bg-black/5 dark:bg-white/5 rounded-xl">
-                    {/* Font Family */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Font</span>
-                      <div className="flex gap-1">
-                        {(["sans", "serif", "mono"] as const).map((f) => (
-                          <button
-                            key={f}
-                            onClick={() => setEditorSettings({ fontFamily: f })}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all capitalize ${
-                              editorSettings.fontFamily === f
-                                ? "bg-[var(--app-accent)] text-white"
-                                : "bg-white dark:bg-[#1a1b1e] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-white/10"
-                            }`}
-                          >
-                            {f}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Font Size */}
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-gray-700 dark:text-gray-300 flex-shrink-0">Font Size</span>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="range"
-                          min={12}
-                          max={24}
-                          value={editorSettings.fontSize}
-                          onChange={(e) => setEditorSettings({ fontSize: Number(e.target.value) })}
-                          className="w-24 accent-[var(--app-accent)]"
-                        />
-                        <span className="text-xs text-gray-500 w-8">{editorSettings.fontSize}px</span>
-                      </div>
-                    </div>
-
-                    {/* Line Height */}
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-gray-700 dark:text-gray-300 flex-shrink-0">Line Height</span>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="range"
-                          min={120}
-                          max={220}
-                          step={10}
-                          value={Math.round(editorSettings.lineHeight * 100)}
-                          onChange={(e) => setEditorSettings({ lineHeight: Number(e.target.value) / 100 })}
-                          className="w-24 accent-[var(--app-accent)]"
-                        />
-                        <span className="text-xs text-gray-500 w-8">{editorSettings.lineHeight.toFixed(1)}</span>
-                      </div>
                     </div>
                   </div>
                 </div>
